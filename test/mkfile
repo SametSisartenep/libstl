@@ -1,0 +1,21 @@
+</$objtype/mkfile
+
+BIN=$home/$objtype/bin
+TARG=stltest
+OFILES=\
+	main.$O\
+
+HFILES=../stl.h
+
+LIB=\
+	../libstl.a$O\
+
+</sys/src/cmd/mkone
+
+../libstl.a$O:
+	cd ..
+	mk install
+
+clean nuke:V:
+	rm -f *.[$OS] [$OS].out y.tab.? y.debug y.output $TARG
+	@{cd ..; mk $target}
