@@ -3,6 +3,8 @@
 #include <bio.h>
 #include "stl.h"
 
+static int bunpack(Biobuf*, char*, ...);
+
 static int
 Bgets(Biobuf *b, u16int *s)
 {
@@ -43,16 +45,62 @@ Bgetf(Biobuf *b, float *f)
 }
 
 static int
-Bgetfv(Biobuf *b, float *f)
+vbunpack(Biobuf *b, char *fmt, va_list a)
 {
-	int i;
+	u16int s;
+	u32int l;
+	float f, *v;
+	void *p;
 
-	for(i = 0; i < 3; i++)
-		if(Bgetf(b, &f[i]) < 0){
-			werrstr("Bgetf: %r");
-			return -1;
+	for(;;){
+		switch(*fmt++){
+		case '\0':
+			return 0;
+		case 's':
+			if(Bgets(b, &s) < 0)
+				goto error;
+			*va_arg(a, ushort*) = s;
+			break;
+		case 'l':
+			if(Bgetl(b, &l) < 0)
+				goto error;
+			*va_arg(a, ulong*) = l;
+			break;
+		case 'f':
+			if(Bgetf(b, &f) < 0)
+				goto error;
+			*va_arg(a, float*) = f;
+			break;
+		case 'v':
+			v = va_arg(a, float*);
+			if(bunpack(b, "fff", v+0, v+1, v+2) < 0)
+				goto error;
+			break;
+		case '[':
+			p = va_arg(a, void*);
+			s = va_arg(a, ushort);
+			if(Bread(b, p, s) != s){
+				werrstr("Bread: could not read %ud bytes", s);
+				goto error;
+			}
+			break;
 		}
-	return 0;
+	}
+error:
+	return -1;
+}
+
+static int
+bunpack(Biobuf *b, char *fmt, ...)
+{
+	va_list a;
+	int n;
+
+	va_start(a, fmt);
+	n = vbunpack(b, fmt, a);
+	va_end(a);
+
+	return n;
 }
 
 Stl *
@@ -71,65 +119,40 @@ readstl(int fd)
 
 	stl = mallocz(sizeof(Stl), 1);
 	if(stl == nil){
-		werrstr("mallocz: %r");
+		werrstr("mallocz0: %r");
 		goto error;
 	}
-	if(Bread(bin, stl->hdr, sizeof(stl->hdr)) != sizeof(stl->hdr)){
-		werrstr("Bread: %r");
-		goto error;
-	}
-	if(Bgetl(bin, &ntris) < 0){
-		werrstr("Bgetl: %r");
+	if(bunpack(bin, "[l", stl->hdr, sizeof(stl->hdr), &ntris) < 0){
+		werrstr("hdr bunpack: %r");
 		goto error;
 	}
 
 	for(i = 0; i < ntris; i++){
 		tri = mallocz(sizeof(Stltri), 1);
 		if(tri == nil){
-			free(tri);
-			werrstr("mallocz: %r");
+			werrstr("mallocz1: %r");
 			goto error;
 		}
-		if(Bgetfv(bin, tri->n) < 0){
+		if(bunpack(bin, "vvvvs", tri->n, tri->p0, tri->p1, tri->p2, &tri->attrlen) < 0){
 			free(tri);
-			werrstr("Bgetfv: %r");
-			goto error;
-		}
-		if(Bgetfv(bin, tri->p0) < 0){
-			free(tri);
-			werrstr("Bgetfv: %r");
-			goto error;
-		}
-		if(Bgetfv(bin, tri->p1) < 0){
-			free(tri);
-			werrstr("Bgetfv: %r");
-			goto error;
-		}
-		if(Bgetfv(bin, tri->p2) < 0){
-			free(tri);
-			werrstr("Bgetfv: %r");
-			goto error;
-		}
-
-		if(Bgets(bin, &tri->attrlen) < 0){
-			free(tri);
-			werrstr("Bgets: %r");
+			werrstr("tri bunpack0: %r");
 			goto error;
 		}
 		tri = realloc(tri, sizeof(Stltri) + tri->attrlen);
 		if(tri == nil){
-			werrstr("realloc: %r");
+			werrstr("realloc0: %r");
 			goto error;
 		}
-		if(Bread(bin, tri->attrs, tri->attrlen) != tri->attrlen){
+		if(bunpack(bin, "[", tri->attrs, tri->attrlen) < 0){
 			free(tri);
-			werrstr("Bread: %r");
+			werrstr("tri bunpack1: %r");
 			goto error;
 		}
 
 		stl->tris = realloc(stl->tris, (stl->ntris+1)*sizeof(*stl->tris));
 		if(stl->tris == nil){
-			werrstr("realloc: %r");
+			free(tri);
+			werrstr("realloc1: %r");
 			goto error;
 		}
 		stl->tris[stl->ntris++] = tri;
