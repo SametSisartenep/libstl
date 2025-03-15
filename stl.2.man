@@ -1,0 +1,70 @@
+.TH STL 2
+.SH NAME
+readstl,
+freestl
+\- STL parser
+.SH SYNOPSIS
+.ta 0.7i +0.7i +0.7i +0.7i +0.7i +0.7i +0.7i
+.EX
+#include <u.h>
+#include <libc.h>
+#include <stl.h>
+
+typedef struct Stltri Stltri;
+typedef struct Stl Stl;
+
+struct Stltri
+{
+	float	n[3];
+	float	v[3][3];
+	u16int	attrlen;
+	u8int	attrs[];
+};
+
+struct Stl
+{
+	u8int	hdr[80];
+	u32int	ntris;
+	Stltri	**tris;
+};
+
+Stl *readstl(int fd);
+void freestl(Stl *stl);
+.EE
+.SH DESCRIPTION
+This library provides a parser for both the text (ASCII) and binary
+STL file formats.
+An
+.B Stl
+structure contains a set of triangles that make up a single 3D model
+or solid.
+.PP
+.B Readstl
+takes an fd open for reading, and returns an allocated Stl structure
+filled with the model it contains.  If the file couldn't be parsed, it
+will write the reason to the errstr and return nil.
+.PP
+.B Freestl
+frees an Stl structure created by
+.BR readstl .
+.PP
+The
+.B hdr
+and
+.B attrs
+properties of
+.B Stl
+and
+.B Stltri
+respectively are not interpreted in any way, and are provided as
+blobs; it's up to the user to give them some meaning.
+.SH SOURCE
+.B /sys/src/libstl
+.SH SEE ALSO
+.IR errstr (2)
+.br
+https://en.wikipedia.org/wiki/STL_(file_format)
+.SH BUGS
+There's no context about why parsing a binary file went wrong.  In
+most cases this means the file is corrupt or malformed, but authors
+may appreciate more information about why and where it failed.
