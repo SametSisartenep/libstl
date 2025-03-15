@@ -29,11 +29,11 @@ printstl(Stl *stl)
 		print("\t%08d\n\t\tn\t", i);
 		printfv(stl->tris[i]->n);
 		print("\n\t\tp0\t");
-		printfv(stl->tris[i]->p0);
+		printfv(stl->tris[i]->v[0]);
 		print("\n\t\tp1\t");
-		printfv(stl->tris[i]->p1);
+		printfv(stl->tris[i]->v[1]);
 		print("\n\t\tp2\t");
-		printfv(stl->tris[i]->p2);
+		printfv(stl->tris[i]->v[2]);
 		print("\n\t\tattrlen\t%d\n", stl->tris[i]->attrlen);
 		print("\n\t\tattrs: %.*s\n", stl->tris[i]->attrlen, (char*)stl->tris[i]->attrs);
 	}

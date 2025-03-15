@@ -16,9 +16,7 @@ typedef struct Stl Stl;
 struct Stltri
 {
 	float	n[3];
-	float	p0[3];
-	float	p1[3];
-	float	p2[3];
+	float	v[3][3];
 	u16int	attrlen;
 	u8int	attrs[];
 };
