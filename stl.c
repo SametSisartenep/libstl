@@ -276,9 +276,10 @@ cleanup1:
 		if(nf < 2){
 			goto notenough0;
 		}
-		if(nf == 2 && strcmp(f[0], "endsolid") == 0)
+		if(nf == 2 && strcmp(f[0], "endsolid") == 0){
+			free(line);
 			break;
-		else
+		}else
 			goto repeat;
 	}
 
