@@ -34,7 +34,7 @@ printstl(Stl *stl)
 		printfv(stl->tris[i]->v[1]);
 		print("\n\t\tp2\t");
 		printfv(stl->tris[i]->v[2]);
-		print("\n\t\tattrlen\t%d\n", stl->tris[i]->attrlen);
+		print("\n\t\tattrlen\t%d", stl->tris[i]->attrlen);
 		print("\n\t\tattrs: %.*s\n", stl->tris[i]->attrlen, (char*)stl->tris[i]->attrs);
 	}
 }

@@ -234,13 +234,11 @@ cleanup1:
 		}
 
 		/* endloop */
-		if((line = getline(&ctx, bin)) == nil){
+		if((line = getline(&ctx, bin)) == nil)
 			goto badline1;
-		}
 		nf = tokenize(line, f, nelem(f));
-		if(nf != 1){
+		if(nf != 1)
 			goto notenough1;
-		}
 		if(strcmp(f[0], "endloop") != 0){
 			error(&ctx, "expected \"endloop\"");
 			goto cleanup1;
@@ -248,13 +246,11 @@ cleanup1:
 		free(line);
 
 		/* endfacet */
-		if((line = getline(&ctx, bin)) == nil){
+		if((line = getline(&ctx, bin)) == nil)
 			goto badline1;
-		}
 		nf = tokenize(line, f, nelem(f));
-		if(nf != 1){
+		if(nf != 1)
 			goto notenough1;
-		}
 		if(strcmp(f[0], "endfacet") == 0){
 			stl->tris = realloc(stl->tris, (stl->ntris+1)*sizeof(*stl->tris));
 			if(stl->tris == nil){
@@ -269,13 +265,11 @@ cleanup1:
 		free(line);
 
 		/* endsolid? */
-		if((line = getline(&ctx, bin)) == nil){
+		if((line = getline(&ctx, bin)) == nil)
 			goto badline0;
-		}
 		nf = tokenize(line, f, nelem(f));
-		if(nf < 2){
+		if(nf < 2)
 			goto notenough0;
-		}
 		if(nf == 2 && strcmp(f[0], "endsolid") == 0){
 			free(line);
 			break;
