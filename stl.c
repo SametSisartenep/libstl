@@ -163,6 +163,7 @@ parsetxt(Biobuf *bin)
 		return nil;
 	}
 	memmove(stl->hdr, line, min(sizeof(stl->hdr), Blinelen(bin)));
+	free(line);
 
 	for(;;){
 		/* facet normal i j k */
