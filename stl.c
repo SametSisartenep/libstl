@@ -336,6 +336,8 @@ verterr:
 			tok.cur--;	/* unget */
 			continue;
 		}
+		while(lex(&tok) != TNL)
+			;
 		break;
 	}
 
