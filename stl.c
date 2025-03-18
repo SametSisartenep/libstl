@@ -5,11 +5,43 @@
 
 #define min(a,b) ((a)<(b)?(a):(b))
 
+enum {
+	TFACET, TNORMAL,
+	TOUTER, TLOOP,
+	TVERTEX,
+	TENDLOOP,
+	TENDFACET,
+	TENDSOLID,
+	TNUM,
+	TNL,
+};
+
 typedef struct Line Line;
+typedef struct Token Token;
+typedef struct Tokenizer Tokenizer;
+
 struct Line
 {
 	char *file;
 	ulong line;
+};
+
+struct Token
+{
+	int t;
+	char *s;
+	double v;
+};
+
+struct Tokenizer
+{
+	Biobuf *in;
+	Token tok;
+	Line *ctx;
+	char *line;
+	char *f[10];
+	int nf;
+	int cur;
 };
 
 static void
@@ -126,32 +158,100 @@ bunpack(Biobuf *b, char *fmt, ...)
 }
 
 static char *
-getline(Line *l, Biobuf *b)
+getline(Biobuf *b)
 {
 	char *line;
 
-	line = Brdstr(b, '\n', 1);
-	if(line == nil){
-		werrstr("could not read a line");
+	if((line = Brdstr(b, '\n', 1)) == nil)
 		return nil;
-	}
-	l->line++;
 	return line;
+}
+
+static int
+idtoken(char *tok)
+{
+	static char *tokens[] = {
+	 [TFACET]	"facet",
+	 [TNORMAL]	"normal",
+	 [TOUTER]	"outer",
+	 [TLOOP]	"loop",
+	 [TVERTEX]	"vertex",
+	 [TENDLOOP]	"endloop",
+	 [TENDFACET]	"endfacet",
+	 [TENDSOLID]	"endsolid",
+	};
+	int i;
+
+	for(i = 0; i < nelem(tokens); i++)
+		if(strcmp(tok, tokens[i]) == 0)
+			return i;
+	return -1;
+}
+
+#define isnum(c) ((c)>='0'&&(c)<='9')
+#define couldbenum(c) ((c)=='+'||c=='-'||isnum(c))
+
+static int
+lex(Tokenizer *t)
+{
+	char *ep;
+	int new;
+
+	new = t->line == nil;
+
+	if(t->cur < t->nf){
+		t->tok.s = t->f[t->cur++];
+		if(couldbenum(t->tok.s[0])){
+			t->tok.t = TNUM;
+			t->tok.v = strtod(t->tok.s, &ep);
+			if(*ep != 0){
+				werrstr("misleading number-like '%s'", t->tok.s);
+				return -1;
+			}
+		}else{
+			t->tok.t = idtoken(t->tok.s);
+			if(t->tok.t < 0){
+				werrstr("unknown token '%s'", t->tok.s);
+				return -1;
+			}
+		}
+	}else{
+		free(t->line);
+		if(!new){
+			t->line = nil;
+			t->tok.t = TNL;
+			return TNL;
+		}
+		if((t->line = getline(t->in)) == nil){
+			werrstr("could not read a line");
+			return -1;
+		}
+		t->ctx->line++;
+		t->nf = tokenize(t->line, t->f, nelem(t->f));
+		t->cur = 0;
+		t->tok.t = lex(t);
+	}
+	return t->tok.t;
 }
 
 static Stl *
 parsetxt(Biobuf *bin)
 {
 	Line ctx;
+	Tokenizer tok;
 	Stltri *tri;
 	Stl *stl;
-	char *line, *f[5];
-	int nf, i;
+	char *line;
+	int i, j;
 
 	memset(&ctx, 0, sizeof(Line));
+	memset(&tok, 0, sizeof(Tokenizer));
+	tok.in = bin;
+	tok.ctx = &ctx;
+	ctx.line = 1;
 
 	/* header */
-	if((line = getline(&ctx, bin)) == nil){
+	if((line = getline(bin)) == nil){
 		error(&ctx, "getline: %r");
 		return nil;
 	}
@@ -166,120 +266,82 @@ parsetxt(Biobuf *bin)
 	free(line);
 
 	for(;;){
+		tri = nil;
+
 		/* facet normal i j k */
-		if((line = getline(&ctx, bin)) == nil){
-badline0:
-			error(&ctx, "getline: %r");
+		if(lex(&tok) != TFACET || lex(&tok) != TNORMAL){
+faceerr:
+			error(&ctx, "expected 'facet normal i j k'");
 			goto error;
 		}
-		nf = tokenize(line, f, nelem(f));
-repeat:
-		if(nf != 5){
-notenough0:
-			error(&ctx, "not enough fields %d", nf);
-cleanup0:
-			free(line);
+		tri = mallocz(sizeof(Stltri), 1);
+		if(tri == nil){
+			werrstr("mallocz: %r");
 			goto error;
 		}
-		if(strcmp(f[0], "facet") == 0 && strcmp(f[1], "normal") == 0){
-			tri = mallocz(sizeof(Stltri), 1);
-			if(tri == nil){
-				werrstr("mallocz1: %r");
-				goto cleanup0;
+		for(i = 0; i < 3; i++){
+			if(lex(&tok) != TNUM){
+				error(&ctx, "expected number got '%s'", tok.tok.s);
+				goto error;
 			}
-			tri->n[0] = strtod(f[2], nil);
-			tri->n[1] = strtod(f[3], nil);
-			tri->n[2] = strtod(f[4], nil);
-		}else{
-			error(&ctx, "expected \"facet normal n₀ n₁ n₂\"");
-			goto cleanup0;
+			tri->n[i] = tok.tok.v;
 		}
-		free(line);
+		if(lex(&tok) != TNL)
+			goto faceerr;
 
 		/* outer loop */
-		if((line = getline(&ctx, bin)) == nil){
-badline1:
-			free(tri);
-			goto badline0;
+		if(lex(&tok) != TOUTER || lex(&tok) != TLOOP || lex(&tok) != TNL){
+			error(&ctx, "expected 'outer loop'");
+			goto error;
 		}
-		nf = tokenize(line, f, nelem(f));
-		if(nf != 2){
-notenough1:
-			free(tri);
-			goto notenough0;
-		}
-		if(strcmp(f[0], "outer") != 0 && strcmp(f[1], "loop") != 0){
-			error(&ctx, "expected \"outer loop\"");
-cleanup1:
-			free(tri);
-			goto cleanup0;
-		}
-		free(line);
 
 		/* [3]vertex x y z */
 		for(i = 0; i < 3; i++){
-			if((line = getline(&ctx, bin)) == nil)
-				goto badline1;
-			nf = tokenize(line, f, nelem(f));
-			if(nf != 4)
-				goto notenough1;
-			if(strcmp(f[0], "vertex") == 0){
-				tri->v[i][0] = strtod(f[1], nil);
-				tri->v[i][1] = strtod(f[2], nil);
-				tri->v[i][2] = strtod(f[3], nil);
-			}else{
-				error(&ctx, "expected \"vertex x y z\"");
-				goto cleanup1;
+			if(lex(&tok) != TVERTEX){
+verterr:
+				error(&ctx, "expected 'vertex x y z'");
+				goto error;
 			}
-			free(line);
+			for(j = 0; j < 3; j++){
+				if(lex(&tok) != TNUM){
+					error(&ctx, "expected number got '%s'", tok.tok.s);
+					goto error;
+				}
+				tri->v[i][j] = tok.tok.v;
+			}
+			if(lex(&tok) != TNL)
+				goto verterr;
 		}
 
 		/* endloop */
-		if((line = getline(&ctx, bin)) == nil)
-			goto badline1;
-		nf = tokenize(line, f, nelem(f));
-		if(nf != 1)
-			goto notenough1;
-		if(strcmp(f[0], "endloop") != 0){
-			error(&ctx, "expected \"endloop\"");
-			goto cleanup1;
+		if(lex(&tok) != TENDLOOP || lex(&tok) != TNL){
+			error(&ctx, "expected 'endloop'");
+			goto error;
 		}
-		free(line);
 
 		/* endfacet */
-		if((line = getline(&ctx, bin)) == nil)
-			goto badline1;
-		nf = tokenize(line, f, nelem(f));
-		if(nf != 1)
-			goto notenough1;
-		if(strcmp(f[0], "endfacet") == 0){
-			stl->tris = realloc(stl->tris, (stl->ntris+1)*sizeof(*stl->tris));
-			if(stl->tris == nil){
-				error(&ctx, "realloc1: %r");
-				goto cleanup1;
-			}
-			stl->tris[stl->ntris++] = tri;
-		}else{
-			error(&ctx, "expected \"endfacet\"");
-			goto cleanup1;
+		if(lex(&tok) != TENDFACET || lex(&tok) != TNL){
+			error(&ctx, "expected 'endfacet'");
+			goto error;
 		}
-		free(line);
+		stl->tris = realloc(stl->tris, (stl->ntris+1)*sizeof(*stl->tris));
+		if(stl->tris == nil){
+			error(&ctx, "realloc1: %r");
+			goto error;
+		}
+		stl->tris[stl->ntris++] = tri;
 
 		/* endsolid? */
-		if((line = getline(&ctx, bin)) == nil)
-			goto badline0;
-		nf = tokenize(line, f, nelem(f));
-		if(nf < 2)
-			goto notenough0;
-		if(nf == 2 && strcmp(f[0], "endsolid") == 0){
-			free(line);
-			break;
-		}else
-			goto repeat;
+		if(lex(&tok) != TENDSOLID){
+			tok.cur--;	/* unget */
+			continue;
+		}
+		break;
 	}
 
 	return stl;
 error:
+	free(tri);
 	freestl(stl);
 	return nil;
 }
