@@ -71,6 +71,20 @@ Bgets(Biobuf *b, u16int *s)
 }
 
 static int
+Bputs(Biobuf *b, u16int s)
+{
+	uchar buf[2];
+
+	buf[0] = s;
+	buf[1] = s >> 8;
+	if(Bwrite(b, buf, 2) != 2){
+		werrstr("could not put 2 bytes");
+		return -1;
+	}
+	return 0;
+}
+
+static int
 Bgetl(Biobuf *b, u32int *l)
 {
 	uchar buf[4];
@@ -80,6 +94,22 @@ Bgetl(Biobuf *b, u32int *l)
 		return -1;
 	}
 	*l = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+	return 0;
+}
+
+static int
+Bputl(Biobuf *b, u32int l)
+{
+	uchar buf[4];
+
+	buf[0] = l;
+	buf[1] = l >> 8;
+	buf[2] = l >> 16;
+	buf[3] = l >> 24;
+	if(Bwrite(b, buf, 4) != 4){
+		werrstr("could not put 4 bytes");
+		return -1;
+	}
 	return 0;
 }
 
@@ -96,7 +126,21 @@ Bgetf(Biobuf *b, float *f)
 	return 0;
 }
 
+static int
+Bputf(Biobuf *b, float f)
+{
+	u32int l;
+
+	l = *(u32int*)&f;
+	if(Bputl(b, l) < 0){
+		werrstr("Bputl: %r");
+		return -1;
+	}
+	return 0;
+}
+
 static int bunpack(Biobuf*, char*, ...);
+static int bpack(Biobuf*, char*, ...);
 
 static int
 vbunpack(Biobuf *b, char *fmt, va_list a)
@@ -145,6 +189,52 @@ error:
 }
 
 static int
+vbpack(Biobuf *b, char *fmt, va_list a)
+{
+	u16int s;
+	u32int l;
+	float f, *v;
+	void *p;
+
+	for(;;){
+		switch(*fmt++){
+		case '\0':
+			return 0;
+		case 's':
+			s = va_arg(a, ushort);
+			if(Bputs(b, s) < 0)
+				goto error;
+			break;
+		case 'l':
+			l = va_arg(a, ulong);
+			if(Bputl(b, l) < 0)
+				goto error;
+			break;
+		case 'f':
+			f = va_arg(a, double);
+			if(Bputf(b, f) < 0)
+				goto error;
+			break;
+		case 'v':
+			v = va_arg(a, float*);
+			if(bpack(b, "fff", v[0], v[1], v[2]) < 0)
+				goto error;
+			break;
+		case '[':
+			p = va_arg(a, void*);
+			s = va_arg(a, ushort);
+			if(Bwrite(b, p, s) != s){
+				werrstr("Bwrite: could not write %ud bytes", s);
+				goto error;
+			}
+			break;
+		}
+	}
+error:
+	return -1;
+}
+
+static int
 bunpack(Biobuf *b, char *fmt, ...)
 {
 	va_list a;
@@ -152,6 +242,19 @@ bunpack(Biobuf *b, char *fmt, ...)
 
 	va_start(a, fmt);
 	n = vbunpack(b, fmt, a);
+	va_end(a);
+
+	return n;
+}
+
+static int
+bpack(Biobuf *b, char *fmt, ...)
+{
+	va_list a;
+	int n;
+
+	va_start(a, fmt);
+	n = vbpack(b, fmt, a);
 	va_end(a);
 
 	return n;
@@ -434,6 +537,84 @@ readstl(int fd)
 out:
 	Bterm(bin);
 	return stl;
+}
+
+static usize
+writetxt(Biobuf *b, Stl *stl)
+{
+	usize n;
+	int i, j;
+
+	n = Bprint(b, "solid");
+	if(strlen((char*)stl->hdr) > 0)
+		n += Bprint(b, " %s", (char*)stl->hdr);
+	n += Bprint(b, "\n");
+
+	for(i = 0; i < stl->ntris; i++){
+		n += Bprint(b, "facet normal %g %g %g\n",
+			stl->tris[i]->n[0], stl->tris[i]->n[1], stl->tris[i]->n[2]);
+		n += Bprint(b, "\touter loop\n");
+		for(j = 0; j < 3; j++)
+			n += Bprint(b, "\t\tvertex %g %g %g\n",
+				stl->tris[i]->v[j][0], stl->tris[i]->v[j][1], stl->tris[i]->v[j][2]);
+		n += Bprint(b, "\tendloop\n");
+		n += Bprint(b, "endfacet\n");
+	}
+
+	n += Bprint(b, "endsolid\n");
+	return n;
+}
+
+static usize
+writebin(Biobuf *b, Stl *stl)
+{
+	Stltri **tri;
+	usize n;
+
+	if(bpack(b, "[l", stl->hdr, sizeof(stl->hdr), stl->ntris) < 0){
+		werrstr("hdr pack: %r");
+		return 0;
+	}
+	n = sizeof(stl->hdr) + 4;
+
+	for(tri = stl->tris; tri < stl->tris+stl->ntris; tri++){
+		if(bpack(b, "vvvvs", (*tri)->n, (*tri)->v+0, (*tri)->v+1, (*tri)->v+2, (*tri)->attrlen) < 0){
+			werrstr("tri pack0: %r");
+			return 0;
+		}
+		n += 4*3*4+2;
+		if(bpack(b, "[", (*tri)->attrs, (*tri)->attrlen) < 0){
+			werrstr("tri pack1: %r");
+			return 0;
+		}
+		n += (*tri)->attrlen;
+	}
+	return n;
+}
+
+usize
+writestl(int fd, Stl *stl, int fmt)
+{
+	Biobuf *b;
+	usize n;
+
+	b = Bfdopen(fd, OWRITE);
+	if(b == nil)
+		sysfatal("Bfdopen: %r");
+
+	n = 0;
+	switch(fmt){
+	case STLTEXT:
+		n = writetxt(b, stl);
+		break;
+	case STLBINARY:
+		n = writebin(b, stl);
+		break;
+	default:
+		werrstr("unknown format '%d'", fmt);
+	}
+	Bterm(b);
+	return n;
 }
 
 void

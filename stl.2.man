@@ -1,6 +1,7 @@
 .TH STL 2
 .SH NAME
 readstl,
+writestl,
 freestl
 \- STL parser
 .SH SYNOPSIS
@@ -9,6 +10,11 @@ freestl
 #include <u.h>
 #include <libc.h>
 #include <stl.h>
+
+enum {
+	STLTEXT,
+	STLBINARY,
+};
 
 typedef struct Stltri Stltri;
 typedef struct Stl Stl;
@@ -29,6 +35,7 @@ struct Stl
 };
 
 Stl *readstl(int fd);
+usize writestl(int fd, Stl *stl, int fmt);
 void freestl(Stl *stl);
 .EE
 .SH DESCRIPTION
@@ -40,9 +47,11 @@ structure contains a set of triangles that make up a single 3D model
 or solid.
 .PP
 .B Readstl
-takes an fd open for reading, and returns an allocated Stl structure
-filled with the model it contains.  If the file couldn't be parsed, it
-will write the reason to the errstr and return nil.
+takes an
+.I fd
+open for reading, and returns an allocated Stl structure filled with
+the model it contains.  If the file couldn't be parsed, it will write
+the reason to the errstr and return nil.
 .PP
 .B Freestl
 frees an Stl structure created by
@@ -58,6 +67,16 @@ and
 .B Stltri
 respectively are not interpreted in any way, and are provided as
 blobs; it's up to the user to give them some meaning.
+.PP
+.B Writestl
+takes an
+.I fd
+open for writing and dumps the
+.I stl
+structure with the given
+.I fmt
+(STLTEXT or STLBINARY).  If an error
+occurs, it will write the reason to the errstr and return zero.
 .SH SOURCE
 .B /sys/src/libstl
 .SH SEE ALSO

@@ -10,6 +10,11 @@
  * 	end
 */
 
+enum {
+	STLTEXT,
+	STLBINARY,
+};
+
 typedef struct Stltri Stltri;
 typedef struct Stl Stl;
 
@@ -29,4 +34,5 @@ struct Stl
 };
 
 Stl *readstl(int);
+usize writestl(int, Stl*, int);
 void freestl(Stl*);
